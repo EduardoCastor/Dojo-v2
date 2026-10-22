@@ -1,0 +1,1601 @@
+import React, { useState, useEffect } from 'react';
+import { DataStore } from './data/storage';
+import {
+  Tenant,
+  Branch,
+  User,
+  Person,
+  GuardianRelationship,
+  Student,
+  ClassGroup,
+  Enrollment,
+  AttendanceRecord,
+  Invoice,
+  DigitalLibraryItem,
+  BeltExamEvent,
+  BeltExamRegistration,
+  Competition,
+  CompetitionAthlete,
+  AuditLog,
+  SaaSPlan,
+  SaaSPlanId,
+  BeltRank,
+  MartialArt,
+  Tatami,
+} from './types';
+
+// Layouts
+import { PublicNavbar } from './components/layout/PublicNavbar';
+import { PublicFooter } from './components/layout/PublicFooter';
+import { DashboardLayout, AdminViewTab } from './components/layout/DashboardLayout';
+import { StudentLayout } from './components/layout/StudentLayout';
+
+// Public Sections & Modals
+import { HeroSection } from './components/public/HeroSection';
+import { FeaturesSection } from './components/public/FeaturesSection';
+import { PricingSection } from './components/public/PricingSection';
+import { FAQSection } from './components/public/FAQSection';
+import { RegisterModal } from './components/public/RegisterModal';
+import { LoginModal } from './components/public/LoginModal';
+
+// Admin Views
+import { OverviewDashboard } from './components/admin/OverviewDashboard';
+import { StudentsView } from './components/admin/StudentsView';
+import { GuardiansView } from './components/admin/GuardiansView';
+import { StudentFormModal } from './components/admin/StudentFormModal';
+import { ModalitiesView } from './components/admin/ModalitiesView';
+import { ClassesView } from './components/admin/ClassesView';
+import { AttendanceView } from './components/admin/AttendanceView';
+import { TatamiOccupancyView } from './components/admin/TatamiOccupancyView';
+import { AttendanceModal } from './components/admin/AttendanceModal';
+import { FinancialView } from './components/admin/FinancialView';
+import { DigitalLibraryView } from './components/admin/DigitalLibraryView';
+import { BeltExamsView } from './components/admin/BeltExamsView';
+import { CompetitionsView } from './components/admin/CompetitionsView';
+import { BranchesView } from './components/admin/BranchesView';
+import { ReportsView } from './components/admin/ReportsView';
+import { SettingsView } from './components/admin/SettingsView';
+import { PlanUpgradeModal } from './components/admin/PlanUpgradeModal';
+
+// Portals
+import { StudentDashboard } from './components/student-portal/StudentDashboard';
+import { GuardianPortal } from './components/student-portal/GuardianPortal';
+import { PlatformAdminView } from './components/superadmin/PlatformAdminView';
+
+// Supabase Real-Time & Auth Services
+import { supabase, authService, isSupabaseConfigured, UserMembership } from './services/supabase';
+import { studentService, CreateStudentPayload, UpdateStudentPayload, isValidUUID } from './services/studentService';
+import { classService } from './services/classService';
+import { attendanceService } from './services/attendanceService';
+import { tatamiService } from './services/tatamiService';
+import { financialService } from './services/financialService';
+
+export default function App() {
+  // App view navigation
+  const [currentView, setCurrentView] = useState<'public' | 'admin' | 'student_portal' | 'guardian_portal' | 'superadmin'>('public');
+  const [adminTab, setAdminTab] = useState<AdminViewTab>('overview');
+
+  // Modals state
+  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
+  const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const [isNewStudentOpen, setIsNewStudentOpen] = useState(false);
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [isUpgradePlanOpen, setIsUpgradePlanOpen] = useState(false);
+  const [selectedClassForAttendance, setSelectedClassForAttendance] = useState<ClassGroup | null>(null);
+  const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState(false);
+
+  // Active Session context
+  const [currentTenantId, setCurrentTenantId] = useState<string>('tenant-kodokan');
+  const [currentBranchId, setCurrentBranchId] = useState<string>('branch-matriz');
+  const [currentUserId, setCurrentUserId] = useState<string>('user-owner');
+
+  // Data Store States
+  const [plans, setPlans] = useState<SaaSPlan[]>(() => DataStore.getPlans());
+  const [tenants, setTenants] = useState<Tenant[]>(() => DataStore.getTenants());
+  const [branches, setBranches] = useState<Branch[]>(() => DataStore.getBranches());
+  const [users, setUsers] = useState<User[]>(() => DataStore.getUsers());
+  const [persons, setPersons] = useState<Person[]>(() => DataStore.getPersons(currentTenantId));
+  const [guardians, setGuardians] = useState<GuardianRelationship[]>(() => DataStore.getGuardianRelationships(currentTenantId));
+  const [students, setStudents] = useState<Student[]>(() => DataStore.getStudents(currentTenantId));
+  const [physicalAssessments, setPhysicalAssessments] = useState(() => DataStore.getPhysicalAssessments(currentTenantId));
+  const [healthRecords, setHealthRecords] = useState(() => DataStore.getHealthRecords(currentTenantId));
+  const [martialArts, setMartialArts] = useState(() => DataStore.getMartialArts(currentTenantId));
+  const [beltRanks, setBeltRanks] = useState(() => DataStore.getBeltRanks(currentTenantId));
+  const [tatamis, setTatamis] = useState<Tatami[]>(() => DataStore.getTatamis(currentTenantId));
+  const [classes, setClasses] = useState<ClassGroup[]>(() => DataStore.getClasses(currentTenantId));
+  const [enrollments, setEnrollments] = useState<Enrollment[]>(() => DataStore.getEnrollments(currentTenantId));
+  const [attendances, setAttendances] = useState<AttendanceRecord[]>(() => DataStore.getAttendances(currentTenantId));
+  const [invoices, setInvoices] = useState<Invoice[]>(() => DataStore.getInvoices(currentTenantId));
+  const [libraryItems, setLibraryItems] = useState<DigitalLibraryItem[]>(() => DataStore.getLibraryItems(currentTenantId));
+  const [beltExams, setBeltExams] = useState<BeltExamEvent[]>(() => DataStore.getBeltExams(currentTenantId));
+  const [examRegistrations, setExamRegistrations] = useState<BeltExamRegistration[]>(() => DataStore.getExamRegistrations(currentTenantId));
+  const [competitions, setCompetitions] = useState<Competition[]>(() => DataStore.getCompetitions(currentTenantId));
+  const [competitionAthletes, setCompetitionAthletes] = useState<CompetitionAthlete[]>(() => DataStore.getCompetitionAthletes(currentTenantId));
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => DataStore.getAuditLogs(currentTenantId));
+
+  const [isLoadingStudents, setIsLoadingStudents] = useState(false);
+
+  // Sync data when currentTenantId changes
+  useEffect(() => {
+    setPersons(DataStore.getPersons(currentTenantId));
+    setGuardians(DataStore.getGuardianRelationships(currentTenantId));
+    setStudents(DataStore.getStudents(currentTenantId));
+    setPhysicalAssessments(DataStore.getPhysicalAssessments(currentTenantId));
+    setHealthRecords(DataStore.getHealthRecords(currentTenantId));
+    setMartialArts(DataStore.getMartialArts(currentTenantId));
+    setBeltRanks(DataStore.getBeltRanks(currentTenantId));
+    setTatamis(DataStore.getTatamis(currentTenantId));
+    setClasses(DataStore.getClasses(currentTenantId));
+    setEnrollments(DataStore.getEnrollments(currentTenantId));
+    setAttendances(DataStore.getAttendances(currentTenantId));
+    setInvoices(DataStore.getInvoices(currentTenantId));
+    setLibraryItems(DataStore.getLibraryItems(currentTenantId));
+    setBeltExams(DataStore.getBeltExams(currentTenantId));
+    setExamRegistrations(DataStore.getExamRegistrations(currentTenantId));
+    setCompetitions(DataStore.getCompetitions(currentTenantId));
+    setCompetitionAthletes(DataStore.getCompetitionAthletes(currentTenantId));
+    setAuditLogs(DataStore.getAuditLogs(currentTenantId));
+  }, [currentTenantId]);
+
+  // Carregar alunos em tempo real do banco de dados quando conectado e autenticado
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadSupabaseStudents() {
+      if (!isSupabaseConfigured() || !supabase || !isValidUUID(currentTenantId)) {
+        return;
+      }
+
+      setIsLoadingStudents(true);
+      try {
+        const result = await studentService.fetchStudentsWithDetails(currentTenantId);
+        if (result && isMounted) {
+          setStudents(result.students);
+          setPersons((prev) => {
+            const nonStudentPersons = prev.filter(
+              (p) => !result.persons.some((rp) => rp.id === p.id)
+            );
+            return [...result.persons, ...nonStudentPersons];
+          });
+          setGuardians(result.guardians);
+        }
+
+        // Sincronizar modalidades e graduações reais da academia ativa
+        try {
+          const [realArts, realBelts] = await Promise.all([
+            studentService.fetchMartialArts(currentTenantId, true),
+            studentService.fetchBeltRanks(currentTenantId),
+          ]);
+          if (isMounted) {
+            if (realArts && realArts.length > 0) setMartialArts(realArts);
+            if (realBelts && realBelts.length > 0) setBeltRanks(realBelts);
+          }
+        } catch (mErr) {
+          console.warn('Aviso ao sincronizar modalidades/faixas do Supabase:', mErr);
+        }
+
+        // Sincronizar turmas, horários, frequência e tatamis reais da academia ativa
+        try {
+          const [loadedClasses, loadedEnrollments, loadedAttendances, loadedTatamis, loadedInvoices] = await Promise.all([
+            classService.fetchClasses(currentTenantId),
+            classService.fetchEnrollments(currentTenantId),
+            attendanceService.fetchAttendances(currentTenantId),
+            tatamiService.fetchTatamis(currentTenantId),
+            financialService.fetchInvoices(currentTenantId),
+          ]);
+          if (isMounted) {
+            if (loadedClasses && loadedClasses.length > 0) setClasses(loadedClasses);
+            if (loadedEnrollments) setEnrollments(loadedEnrollments);
+            if (loadedAttendances && loadedAttendances.length > 0) setAttendances(loadedAttendances);
+            if (loadedTatamis && loadedTatamis.length > 0) setTatamis(loadedTatamis);
+            if (loadedInvoices && loadedInvoices.length > 0) {
+              setInvoices(loadedInvoices);
+              DataStore.saveInvoices(loadedInvoices, currentTenantId);
+            }
+          }
+        } catch (cErr) {
+          console.warn('Aviso ao sincronizar turmas/matrículas/frequência/tatamis/faturas do Supabase:', cErr);
+        }
+      } catch (err) {
+        console.warn('Erro ao sincronizar alunos do banco:', err);
+      } finally {
+        if (isMounted) {
+          setIsLoadingStudents(false);
+        }
+      }
+    }
+
+    loadSupabaseStudents();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentTenantId]);
+
+  const handleRefreshStudents = async () => {
+    if (!isSupabaseConfigured() || !supabase || !isValidUUID(currentTenantId)) {
+      return;
+    }
+    setIsLoadingStudents(true);
+    try {
+      const [result, loadedClasses, loadedEnrollments] = await Promise.all([
+        studentService.fetchStudentsWithDetails(currentTenantId),
+        classService.fetchClasses(currentTenantId),
+        classService.fetchEnrollments(currentTenantId),
+      ]);
+      if (result) {
+        setStudents(result.students);
+        DataStore.saveStudents(result.students);
+        setPersons((prev) => {
+          const nonStudentPersons = prev.filter(
+            (p) => !result.persons.some((rp) => rp.id === p.id)
+          );
+          const next = [...result.persons, ...nonStudentPersons];
+          DataStore.savePersons(next);
+          return next;
+        });
+        setGuardians(result.guardians);
+        DataStore.saveGuardianRelationships(result.guardians);
+      }
+      if (loadedClasses && loadedClasses.length > 0) setClasses(loadedClasses);
+      if (loadedEnrollments) setEnrollments(loadedEnrollments);
+    } catch (err) {
+      console.warn('Erro ao atualizar dados do banco:', err);
+    } finally {
+      setIsLoadingStudents(false);
+    }
+  };
+
+  const handleRefreshClasses = async () => {
+    if (!isSupabaseConfigured() || !supabase || !isValidUUID(currentTenantId)) {
+      return;
+    }
+    try {
+      const [loadedClasses, loadedEnrollments] = await Promise.all([
+        classService.fetchClasses(currentTenantId),
+        classService.fetchEnrollments(currentTenantId),
+      ]);
+      if (loadedClasses) setClasses(loadedClasses);
+      if (loadedEnrollments) setEnrollments(loadedEnrollments);
+    } catch (err) {
+      console.warn('Erro ao atualizar turmas/matrículas do Supabase:', err);
+    }
+  };
+
+  const fallbackTenant: Tenant = {
+    id: currentTenantId || 'tenant-kodokan',
+    tradeName: 'TatameHub Dojo',
+    legalName: 'TatameHub Dojo Ltda',
+    cnpjOrCpf: '00.000.000/0001-00',
+    adminName: 'Sensei Administrador',
+    email: 'contato@tatamehub.com.br',
+    phone: '(11) 98888-0000',
+    whatsapp: '(11) 98888-0000',
+    address: {
+      street: 'Rua Principal',
+      number: '100',
+      neighborhood: 'Centro',
+      city: 'São Paulo',
+      state: 'SP',
+      zipCode: '01000-000',
+    },
+    planId: 'trial',
+    status: 'trial',
+    trialStartedAt: new Date().toISOString(),
+    trialExpiresAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    retentionDays: 60,
+    settings: {
+      defaultDueDay: 10,
+      penaltyRate: 2,
+      dailyInterestRate: 0.033,
+      familyDiscount2ndMember: 15,
+      multiArtDiscount: 20,
+      customBrandColor: '#dc2626',
+    },
+  };
+
+  const activeTenant: Tenant = tenants.find(t => t.id === currentTenantId) || tenants[0] || fallbackTenant;
+  const tenantBranches = branches.filter(b => b.tenantId === currentTenantId);
+  const currentUser: User = users.find(u => u.id === currentUserId) || users[1] || users[0] || {
+    id: currentUserId || 'user-owner',
+    tenantId: currentTenantId,
+    name: 'Administrador',
+    email: 'admin@tatamehub.com.br',
+    role: 'owner',
+    phone: '',
+    active: true,
+  };
+
+  // Supabase Auth Session listener
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !supabase) return;
+
+    // Verificar sessão existente ao carregar o aplicativo
+    authService.getSession().then(async (session) => {
+      if (session?.user) {
+        const memberships = await authService.loadUserMemberships(session.user.id);
+        if (memberships.length > 0) {
+          applyMembershipContext(session.user, memberships);
+        }
+      }
+    });
+
+    // Escutar eventos de login/logout em tempo real
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        const memberships = await authService.loadUserMemberships(session.user.id);
+        if (memberships.length > 0) {
+          applyMembershipContext(session.user, memberships);
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setCurrentView('public');
+      }
+    });
+
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  const applyMembershipContext = (user: any, memberships: UserMembership[]) => {
+    const primary = memberships[0];
+    if (!primary) return;
+
+    const tenantData = primary.tenant;
+    if (tenantData) {
+      setTenants((prev) => {
+        if (!prev.some((t) => t.id === primary.tenant_id)) {
+          const loadedTenant: Tenant = {
+            id: primary.tenant_id,
+            tradeName: tenantData.trade_name,
+            legalName: tenantData.legal_name || tenantData.trade_name,
+            cnpjOrCpf: tenantData.cnpj_or_cpf,
+            adminName: user.user_metadata?.full_name || 'Administrador',
+            email: user.email || '',
+            phone: '',
+            whatsapp: '',
+            logoUrl: tenantData.logo_url || undefined,
+            address: {
+              street: '',
+              number: '',
+              neighborhood: '',
+              city: 'São Paulo',
+              state: 'SP',
+              zipCode: '',
+            },
+            planId: (tenantData.plan_id as any) || 'trial',
+            status: (tenantData.status as any) || 'trial',
+            trialStartedAt: new Date().toISOString(),
+            trialExpiresAt: tenantData.trial_expires_at || new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            retentionDays: 60,
+            settings: tenantData.settings || {
+              defaultDueDay: 10,
+              penaltyRate: 2,
+              dailyInterestRate: 0.033,
+              familyDiscount2ndMember: 15,
+              multiArtDiscount: 20,
+              customBrandColor: '#dc2626',
+            },
+          };
+          return [loadedTenant, ...prev];
+        }
+        return prev;
+      });
+    }
+
+    const branchData = primary.branch;
+    if (branchData) {
+      setBranches((prev) => {
+        if (!prev.some((b) => b.id === primary.branch_id)) {
+          const loadedBranch: Branch = {
+            id: primary.branch_id || 'branch-matriz',
+            tenantId: primary.tenant_id,
+            name: branchData.name || 'Unidade Matriz',
+            isHeadquarter: branchData.is_headquarter ?? true,
+            phone: '',
+            email: user.email || '',
+            address: '',
+            managerName: user.user_metadata?.full_name || 'Gestor',
+            active: true,
+          };
+          return [loadedBranch, ...prev];
+        }
+        return prev;
+      });
+    }
+
+    const authenticatedUser: User = {
+      id: user.id,
+      tenantId: primary.tenant_id,
+      branchId: primary.branch_id || undefined,
+      name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Usuário Autenticado',
+      email: user.email || '',
+      role: primary.role,
+      phone: user.user_metadata?.phone || '',
+      active: true,
+    };
+
+    setUsers((prev) => {
+      const filtered = prev.filter((u) => u.id !== user.id);
+      return [authenticatedUser, ...filtered];
+    });
+
+    setCurrentTenantId(primary.tenant_id);
+    if (primary.branch_id) setCurrentBranchId(primary.branch_id);
+    setCurrentUserId(user.id);
+
+    if (primary.role === 'student') {
+      setCurrentView('student_portal');
+    } else if (primary.role === 'guardian') {
+      setCurrentView('guardian_portal');
+    } else {
+      setCurrentView('admin');
+      setAdminTab('overview');
+    }
+  };
+
+  const handleAuthSuccess = (user: any, memberships: UserMembership[]) => {
+    if (memberships && memberships.length > 0) {
+      applyMembershipContext(user, memberships);
+    } else {
+      // Usuário autenticado com sucesso, mas sem academia vinculada
+      // Abre cadastro da primeira academia
+      setIsRegisterOpen(true);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (isSupabaseConfigured()) {
+      await authService.signOut();
+    }
+    setCurrentView('public');
+  };
+
+  // Handlers for User Switching & Login
+  const handleSelectUser = (user: User) => {
+    setCurrentUserId(user.id);
+    setIsLoginOpen(false);
+
+    if (user.role === 'superadmin') {
+      setCurrentView('superadmin');
+    } else if (user.role === 'student') {
+      setCurrentTenantId(user.tenantId);
+      setCurrentView('student_portal');
+    } else if (user.role === 'guardian') {
+      setCurrentTenantId(user.tenantId);
+      setCurrentView('guardian_portal');
+    } else {
+      // Owner, Branch Manager, Secretary, Financial, Instructor
+      setCurrentTenantId(user.tenantId);
+      if (user.branchId) setCurrentBranchId(user.branchId);
+      setCurrentView('admin');
+      setAdminTab('overview');
+    }
+  };
+
+
+  // Handlers for Registration via Supabase register_academy_atomic
+  const handleRegisterAtomicSuccess = async (rpcResult: any, memberships: UserMembership[]) => {
+    setIsRegisterOpen(false);
+
+    const session = await authService.getSession();
+    const user = session?.user || currentUser;
+
+    if (memberships && memberships.length > 0) {
+      applyMembershipContext(user, memberships);
+    } else {
+      if (session?.user) {
+        const freshMemberships = await authService.loadUserMemberships(session.user.id);
+        if (freshMemberships.length > 0) {
+          applyMembershipContext(session.user, freshMemberships);
+          return;
+        }
+      }
+      if (rpcResult?.tenant_id) {
+        setCurrentTenantId(rpcResult.tenant_id);
+        if (rpcResult.branch_id) setCurrentBranchId(rpcResult.branch_id);
+        setCurrentView('admin');
+        setAdminTab('overview');
+      }
+    }
+  };
+
+  // Handlers for Registration (Modo local de demonstração)
+  const handleRegisterSuccess = (newTenant: Tenant, newBranch: Branch, newUser: User) => {
+    const updatedTenants = [...tenants, newTenant];
+    const updatedBranches = [...branches, newBranch];
+    const updatedUsers = [...users, newUser];
+
+    DataStore.saveTenants(updatedTenants);
+    DataStore.saveBranches(updatedBranches);
+    DataStore.saveUsers(updatedUsers);
+
+    setTenants(updatedTenants);
+    setBranches(updatedBranches);
+    setUsers(updatedUsers);
+
+    setCurrentTenantId(newTenant.id);
+    setCurrentBranchId(newBranch.id);
+    setCurrentUserId(newUser.id);
+    setIsRegisterOpen(false);
+    setCurrentView('admin');
+    setAdminTab('overview');
+
+    DataStore.logAudit(
+      newTenant.id,
+      newUser.id,
+      newUser.name,
+      'Criação de Conta',
+      'Tenant',
+      newTenant.id,
+      `Nova academia "${newTenant.tradeName}" cadastrada com 10 dias de teste grátis.`
+    );
+  };
+
+  // Handlers for Student Creation
+  const handleSaveStudent = async (
+    newStudent: Student,
+    newPerson: Person,
+    guardianPerson?: Person,
+    relationship?: GuardianRelationship,
+    payloadDetails?: CreateStudentPayload
+  ) => {
+    // 1. Prioridade para persistência real no Supabase
+    if (isSupabaseConfigured() && supabase && isValidUUID(currentTenantId) && payloadDetails) {
+      try {
+        const result = await studentService.createStudent(payloadDetails);
+
+        setStudents((prev) => [result.student, ...prev]);
+        setPersons((prev) => {
+          const toAdd = result.guardianPerson ? [result.person, result.guardianPerson] : [result.person];
+          const filtered = prev.filter(
+            (p) => p.id !== result.person.id && (!result.guardianPerson || p.id !== result.guardianPerson.id)
+          );
+          const next = [...toAdd, ...filtered];
+          DataStore.savePersons(next);
+          return next;
+        });
+        if (result.relationship) {
+          setGuardians((prev) => {
+            const next = [result.relationship!, ...prev];
+            DataStore.saveGuardianRelationships(next);
+            return next;
+          });
+        }
+
+        // Cache local
+        DataStore.saveStudents([result.student, ...students]);
+
+        DataStore.logAudit(
+          currentTenantId,
+          currentUser.id,
+          currentUser.name,
+          'Matrícula de Aluno',
+          'Student',
+          result.student.id,
+          `Matriculado o aluno ${result.person.fullName} no banco de dados.`
+        );
+
+        await handleRefreshStudents();
+        setIsNewStudentOpen(false);
+        return;
+      } catch (err: any) {
+        console.error('Falha na persistência no Supabase:', err);
+        throw err;
+      }
+    }
+
+    // 2. Fallback localStorage (modo demonstração local)
+    const updatedStudents = [...students, newStudent];
+    const personsMap = new Map(persons.map((p) => [p.id, p]));
+    personsMap.set(newPerson.id, newPerson);
+    if (guardianPerson) {
+      personsMap.set(guardianPerson.id, guardianPerson);
+    }
+    const updatedPersons = Array.from(personsMap.values());
+    const updatedGuardians = relationship ? [...guardians, relationship] : guardians;
+
+    // Generate initial invoice for this student
+    const newInvoice: Invoice = {
+      id: `inv-${Date.now()}`,
+      tenantId: currentTenantId,
+      branchId: currentBranchId,
+      studentId: newStudent.id,
+      financialGuardianId: guardianPerson?.id,
+      competence: '10/2026',
+      issueDate: new Date().toISOString().split('T')[0],
+      dueDate: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(activeTenant.settings.defaultDueDay).padStart(2, '0')}`,
+      originalAmount: newStudent.monthlyFee,
+      discountAmount: 0,
+      penaltyAndInterestAmount: 0,
+      finalAmount: newStudent.monthlyFee,
+      paidAmount: 0,
+      balance: newStudent.monthlyFee,
+      status: 'pending',
+      pixCode: `00020126580014br.gov.bcb.pix0136${Date.now()}5204000053039865406${newStudent.monthlyFee}.005802BR5925${activeTenant.tradeName.substring(0, 25).toUpperCase()}6009SAO PAULO62070503***6304${Math.floor(1000 + Math.random() * 9000)}`,
+      auditTrail: [
+        {
+          date: new Date().toISOString(),
+          action: 'Emissão inicial com matrícula',
+          userName: currentUser.name,
+        },
+      ],
+    };
+
+    const updatedInvoices = [newInvoice, ...invoices];
+
+    DataStore.saveStudents(updatedStudents);
+    DataStore.savePersons(updatedPersons);
+    DataStore.saveGuardianRelationships(updatedGuardians);
+    DataStore.saveInvoices(updatedInvoices);
+
+    setStudents(updatedStudents);
+    setPersons(updatedPersons);
+    setGuardians(updatedGuardians);
+    setInvoices(updatedInvoices);
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Matrícula de Aluno',
+      'Student',
+      newStudent.id,
+      `Matriculado o aluno ${newPerson.fullName} com mensalidade ${newStudent.monthlyFee} BRL.`
+    );
+
+    setIsNewStudentOpen(false);
+  };
+
+  const handleOpenCreateStudent = () => {
+    setEditingStudent(null);
+    setIsNewStudentOpen(true);
+  };
+
+  const handleOpenEditStudent = (student: Student) => {
+    setEditingStudent(student);
+    setIsNewStudentOpen(true);
+  };
+
+  // Handlers for Student Update
+  const handleUpdateStudent = async (
+    updatedStudent: Student,
+    updatedPerson: Person,
+    guardianPerson?: Person,
+    relationship?: GuardianRelationship,
+    payloadDetails?: UpdateStudentPayload
+  ) => {
+    // 1. Prioridade para persistência real no Supabase
+    const activeTenantId = payloadDetails?.tenantId || currentTenantId;
+    if (isSupabaseConfigured() && supabase && isValidUUID(activeTenantId) && payloadDetails) {
+      try {
+        const result = await studentService.updateStudent(payloadDetails);
+
+        setStudents((prev) => prev.map((s) => (s.id === result.student.id ? result.student : s)));
+        setPersons((prev) => {
+          const map = new Map(prev.map((p) => [p.id, p]));
+          map.set(result.person.id, result.person);
+          if (result.guardianPerson) {
+            map.set(result.guardianPerson.id, result.guardianPerson);
+          }
+          const next = Array.from(map.values());
+          DataStore.savePersons(next);
+          return next;
+        });
+
+        if (result.relationship) {
+          setGuardians((prev) => {
+            const filtered = prev.filter(
+              (g) => g.id !== result.relationship!.id && g.studentId !== result.student.id
+            );
+            const nextList = [result.relationship!, ...filtered];
+            DataStore.saveGuardianRelationships(nextList);
+            return nextList;
+          });
+        } else if (payloadDetails?.hasGuardian === false) {
+          setGuardians((prev) => {
+            const nextList = prev.filter((g) => g.studentId !== result.student.id);
+            DataStore.saveGuardianRelationships(nextList);
+            return nextList;
+          });
+        }
+
+        // Cache local
+        DataStore.saveStudents(students.map((s) => (s.id === result.student.id ? result.student : s)));
+
+        await handleRefreshStudents();
+        setIsNewStudentOpen(false);
+        setEditingStudent(null);
+        return;
+      } catch (err: any) {
+        console.error('Falha ao atualizar aluno no Supabase:', err);
+        throw err;
+      }
+    }
+
+    // 2. Fallback localStorage (modo demonstração local)
+    const updatedStudentsList = students.map((s) => (s.id === updatedStudent.id ? updatedStudent : s));
+    const updatedPersonsList = persons.map((p) => {
+      if (p.id === updatedPerson.id) return updatedPerson;
+      if (guardianPerson && p.id === guardianPerson.id) return guardianPerson;
+      return p;
+    });
+    if (guardianPerson && !updatedPersonsList.some((p) => p.id === guardianPerson.id)) {
+      updatedPersonsList.push(guardianPerson);
+    }
+    const updatedGuardiansList = relationship
+      ? [relationship, ...guardians.filter((g) => g.studentId !== updatedStudent.id)]
+      : payloadDetails?.hasGuardian === false
+      ? guardians.filter((g) => g.studentId !== updatedStudent.id)
+      : guardians;
+
+    DataStore.saveStudents(updatedStudentsList);
+    DataStore.savePersons(updatedPersonsList);
+    DataStore.saveGuardianRelationships(updatedGuardiansList);
+
+    setStudents(updatedStudentsList);
+    setPersons(updatedPersonsList);
+    setGuardians(updatedGuardiansList);
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Edição de Aluno',
+      'Student',
+      updatedStudent.id,
+      `Dados do aluno ${updatedPerson.fullName} atualizados com sucesso.`
+    );
+
+    setIsNewStudentOpen(false);
+    setEditingStudent(null);
+  };
+
+  const handleUpdatePerson = (updatedPerson: Person) => {
+    setPersons((prev) => {
+      const next = prev.map((p) => (p.id === updatedPerson.id ? updatedPerson : p));
+      DataStore.savePersons(next);
+      return next;
+    });
+  };
+
+  const handleResetAcademyData = async () => {
+    try {
+      setIsLoadingStudents(true);
+      await studentService.resetAcademyData(currentTenantId);
+      await handleRefreshStudents();
+      setPersons(DataStore.getPersons(currentTenantId));
+      setStudents(DataStore.getStudents(currentTenantId));
+      setGuardians(DataStore.getGuardianRelationships(currentTenantId));
+    } catch (err: any) {
+      console.error('Erro ao reiniciar dados do dojo:', err);
+    } finally {
+      setIsLoadingStudents(false);
+    }
+  };
+
+  // Handlers for Attendance
+  const handleRefreshAttendance = async () => {
+    if (!isSupabaseConfigured() || !supabase || !isValidUUID(currentTenantId)) {
+      setAttendances(DataStore.getAttendances(currentTenantId));
+      return;
+    }
+    try {
+      const fresh = await attendanceService.fetchAttendances(currentTenantId);
+      if (fresh) {
+        setAttendances(fresh);
+      }
+    } catch (err) {
+      console.warn('Erro ao atualizar chamadas:', err);
+    }
+  };
+
+  const handleRefreshTatamis = async () => {
+    if (!isSupabaseConfigured() || !supabase || !isValidUUID(currentTenantId)) {
+      setTatamis(DataStore.getTatamis(currentTenantId));
+      return;
+    }
+    try {
+      const fresh = await tatamiService.fetchTatamis(currentTenantId);
+      if (fresh && fresh.length > 0) {
+        setTatamis(fresh);
+      }
+    } catch (err) {
+      console.warn('Erro ao atualizar tatamis:', err);
+    }
+  };
+
+  const handleSaveAttendance = async (records: AttendanceRecord[]) => {
+    if (selectedClassForAttendance && isSupabaseConfigured() && supabase && isValidUUID(currentTenantId)) {
+      try {
+        await attendanceService.saveAttendance({
+          tenantId: currentTenantId,
+          classGroupId: selectedClassForAttendance.id,
+          date: records[0]?.date || new Date().toISOString().split('T')[0],
+          startTime: selectedClassForAttendance.startTime,
+          endTime: selectedClassForAttendance.endTime,
+          instructorName: selectedClassForAttendance.headInstructorName,
+          sessionStatus: 'completed',
+          records: records.map((r) => ({
+            studentId: r.studentId,
+            status: r.status,
+            notes: r.notes,
+          })),
+          currentUser,
+        });
+      } catch (err) {
+        console.warn('Aviso: falha ao salvar chamada no Supabase via modal (salvando localmente):', err);
+      }
+    }
+
+    const updated = [...records, ...attendances.filter(a => !(a.classGroupId === selectedClassForAttendance?.id && a.date === records[0]?.date))];
+    DataStore.saveAttendances(updated);
+    setAttendances(updated);
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Registro de Chamada',
+      'AttendanceRecord',
+      selectedClassForAttendance?.id || 'class',
+      `Chamada realizada para a turma ${selectedClassForAttendance?.name} (${records.length} alunos verificados).`
+    );
+  };
+
+  // Handlers for Invoice settlement
+  const handleSettleInvoice = (updatedInvoice: Invoice) => {
+    setInvoices((prev) => {
+      const next = prev.some((inv) => inv.id === updatedInvoice.id)
+        ? prev.map((inv) => (inv.id === updatedInvoice.id ? updatedInvoice : inv))
+        : [updatedInvoice, ...prev];
+      DataStore.saveInvoices(next, currentTenantId);
+      return next;
+    });
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Baixa Financeira',
+      'Invoice',
+      updatedInvoice.id,
+      `Baixa registrada no valor recebido de ${updatedInvoice.paidAmount} BRL (Saldo restante: ${updatedInvoice.balance} BRL).`
+    );
+  };
+
+  const handleRefreshFinancial = async () => {
+    if (!isSupabaseConfigured() || !supabase || !isValidUUID(currentTenantId)) {
+      setInvoices(DataStore.getInvoices(currentTenantId));
+      return;
+    }
+    try {
+      const fresh = await financialService.fetchInvoices(currentTenantId);
+      if (fresh) {
+        setInvoices(fresh);
+        DataStore.saveInvoices(fresh, currentTenantId);
+      }
+    } catch (err) {
+      console.warn('Erro ao atualizar mensalidades:', err);
+    }
+  };
+
+  // Handlers for Martial Arts
+  const handleAddMartialArt = (art: MartialArt) => {
+    const updated = [...martialArts, art];
+    DataStore.saveMartialArts(updated);
+    setMartialArts(updated);
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Criação de Modalidade',
+      'MartialArt',
+      art.id,
+      `Nova modalidade ${art.name} cadastrada.`
+    );
+  };
+
+  const handleUpdateMartialArt = (art: MartialArt) => {
+    const updated = martialArts.map((m) => (m.id === art.id ? art : m));
+    DataStore.saveMartialArts(updated);
+    setMartialArts(updated);
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Edição de Modalidade',
+      'MartialArt',
+      art.id,
+      `Modalidade ${art.name} atualizada.`
+    );
+  };
+
+  const handleToggleMartialArtStatus = (art: MartialArt) => {
+    const updated = martialArts.map((m) => (m.id === art.id ? art : m));
+    DataStore.saveMartialArts(updated);
+    setMartialArts(updated);
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Alteração de Status',
+      'MartialArt',
+      art.id,
+      `Modalidade ${art.name} alterada para status ${art.status}.`
+    );
+  };
+
+  const handleDeleteMartialArt = (id: string) => {
+    const artToDelete = martialArts.find((m) => m.id === id);
+    const updatedArts = martialArts.filter((m) => m.id !== id);
+    const updatedBelts = beltRanks.filter((b) => b.martialArtId !== id);
+
+    DataStore.saveMartialArts(updatedArts);
+    DataStore.saveBeltRanks(updatedBelts);
+    setMartialArts(updatedArts);
+    setBeltRanks(updatedBelts);
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Exclusão de Modalidade',
+      'MartialArt',
+      id,
+      `Modalidade ${artToDelete?.name || id} removida com suas faixas.`
+    );
+  };
+
+  // Handlers for Belt Rank addition, edit, delete, reorder
+  const handleAddBeltRank = (rank: BeltRank) => {
+    const updated = [...beltRanks, rank];
+    DataStore.saveBeltRanks(updated);
+    setBeltRanks(updated);
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Criação de Faixa',
+      'BeltRank',
+      rank.id,
+      `Nova graduação ${rank.name} cadastrada.`
+    );
+  };
+
+  const handleUpdateBeltRank = (rank: BeltRank) => {
+    const updated = beltRanks.map((b) => (b.id === rank.id ? rank : b));
+    DataStore.saveBeltRanks(updated);
+    setBeltRanks(updated);
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Edição de Faixa',
+      'BeltRank',
+      rank.id,
+      `Graduação ${rank.name} atualizada.`
+    );
+  };
+
+  const handleDeleteBeltRank = (id: string) => {
+    const beltToDelete = beltRanks.find((b) => b.id === id);
+    const updated = beltRanks.filter((b) => b.id !== id);
+    DataStore.saveBeltRanks(updated);
+    setBeltRanks(updated);
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Exclusão de Faixa',
+      'BeltRank',
+      id,
+      `Graduação ${beltToDelete?.name || id} removida.`
+    );
+  };
+
+  const handleReorderBeltRanks = (artId: string, orderedRanks: BeltRank[]) => {
+    const otherBelts = beltRanks.filter((b) => b.martialArtId !== artId);
+    const updated = [...otherBelts, ...orderedRanks];
+    DataStore.saveBeltRanks(updated);
+    setBeltRanks(updated);
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Reordenação de Faixas',
+      'BeltRank',
+      artId,
+      `Sequência de graduações reordenada para modalidade.`
+    );
+  };
+
+  const handleRefreshModalities = async () => {
+    try {
+      const [realArts, realBelts] = await Promise.all([
+        studentService.fetchMartialArts(currentTenantId, true),
+        studentService.fetchBeltRanks(currentTenantId),
+      ]);
+      if (realArts && realArts.length > 0) setMartialArts(realArts);
+      if (realBelts && realBelts.length > 0) setBeltRanks(realBelts);
+    } catch (err) {
+      console.warn('Erro ao recarregar modalidades/faixas:', err);
+    }
+  };
+
+  // Handlers for Classes
+  const handleAddClass = (newClass: ClassGroup) => {
+    setClasses((prev) => {
+      const exists = prev.some((c) => c.id === newClass.id);
+      const updated = exists ? prev.map((c) => (c.id === newClass.id ? newClass : c)) : [newClass, ...prev];
+      DataStore.saveClasses(updated);
+      return updated;
+    });
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Criação/Edição de Turma',
+      'ClassGroup',
+      newClass.id,
+      `Turma ${newClass.name} salva no ${newClass.tatamiRoom}.`
+    );
+  };
+
+  // Handlers for Library Items
+  const handleAddLibraryItem = (newItem: DigitalLibraryItem) => {
+    const updated = [newItem, ...libraryItems];
+    DataStore.saveLibraryItems(updated);
+    setLibraryItems(updated);
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Publicação Técnica',
+      'DigitalLibraryItem',
+      newItem.id,
+      `Publicado material: ${newItem.title}.`
+    );
+  };
+
+  // Handlers for Exam Creation and Approval
+  const handleAddExam = (newExam: BeltExamEvent) => {
+    const updated = [newExam, ...beltExams];
+    DataStore.saveBeltExams(updated);
+    setBeltExams(updated);
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Agendamento de Exame',
+      'BeltExamEvent',
+      newExam.id,
+      `Exame marcado para ${newExam.examDate}.`
+    );
+  };
+
+  const handleApproveCandidate = (regId: string, score: number, notes: string) => {
+    const reg = examRegistrations.find(r => r.id === regId);
+    if (!reg) return;
+
+    const updatedRegs = examRegistrations.map((r) =>
+      r.id === regId ? { ...r, resultStatus: 'approved' as const, score, examinerNotes: notes } : r
+    );
+    DataStore.saveExamRegistrations(updatedRegs);
+    setExamRegistrations(updatedRegs);
+
+    // Promote student rank
+    const updatedStudents = students.map((s) => {
+      if (s.id === reg.studentId) {
+        return {
+          ...s,
+          currentGraduations: [
+            {
+              martialArtId: 'art-judo',
+              martialArtName: 'Judô',
+              beltId: reg.targetBeltId,
+              beltName: reg.targetBelt,
+              beltColorHex: '#f97316', // Orange
+              graduatedAt: new Date().toISOString().split('T')[0],
+            },
+            ...s.currentGraduations,
+          ],
+        };
+      }
+      return s;
+    });
+
+    DataStore.saveStudents(updatedStudents);
+    setStudents(updatedStudents);
+
+    DataStore.logAudit(
+      currentTenantId,
+      currentUser.id,
+      currentUser.name,
+      'Graduação Aprovada',
+      'Student',
+      reg.studentId,
+      `Aluno ${reg.studentName} aprovado pela banca com nota ${score} e promovido a ${reg.targetBelt}.`
+    );
+  };
+
+  // Handlers for Competitions
+  const handleAddCompetition = (comp: Competition) => {
+    const updated = [comp, ...competitions];
+    DataStore.saveCompetitions(updated);
+    setCompetitions(updated);
+  };
+
+  // Handlers for Branches
+  const handleAddBranch = (branch: Branch) => {
+    const updated = [...branches, branch];
+    DataStore.saveBranches(updated);
+    setBranches(updated);
+  };
+
+  // Handlers for Tenant settings
+  const handleSaveTenant = (updatedTenant: Tenant) => {
+    const updatedTenants = tenants.map(t => (t.id === updatedTenant.id ? updatedTenant : t));
+    DataStore.saveTenants(updatedTenants);
+    setTenants(updatedTenants);
+  };
+
+  // Handlers for Plan Upgrade
+  const handleConfirmUpgrade = (newPlanId: SaaSPlanId) => {
+    const updatedTenant: Tenant = {
+      ...activeTenant,
+      planId: newPlanId,
+      status: 'active',
+    };
+    handleSaveTenant(updatedTenant);
+  };
+
+  // Handlers for Superadmin updates
+  const handleUpdatePlans = (updatedPlans: SaaSPlan[]) => {
+    DataStore.savePlans(updatedPlans);
+    setPlans(updatedPlans);
+  };
+
+  const handleUpdateTenantStatus = (tenantId: string, status: Tenant['status']) => {
+    const updated = tenants.map(t => (t.id === tenantId ? { ...t, status } : t));
+    DataStore.saveTenants(updated);
+    setTenants(updated);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-red-600 selection:text-white">
+      {/* VIEW 1: PUBLIC COMMERCIAL LANDING PAGE */}
+      {currentView === 'public' && (
+        <>
+          <PublicNavbar
+            onOpenRegister={() => setIsRegisterOpen(true)}
+            onOpenLogin={() => setIsLoginOpen(true)}
+          />
+          <main>
+            <HeroSection
+              onOpenRegister={() => setIsRegisterOpen(true)}
+              onOpenLogin={() => setIsLoginOpen(true)}
+            />
+            <FeaturesSection />
+            <PricingSection
+              plans={plans}
+              onSelectPlan={(planId) => {
+                if (planId === 'trial') {
+                  setIsRegisterOpen(true);
+                } else {
+                  setIsRegisterOpen(true);
+                }
+              }}
+            />
+            <FAQSection />
+          </main>
+          <PublicFooter />
+        </>
+      )}
+
+      {/* VIEW 2: TENANT ACADEMY ADMIN CONSOLE */}
+      {currentView === 'admin' && (
+        <DashboardLayout
+          currentUser={currentUser}
+          tenant={activeTenant}
+          branches={tenantBranches}
+          currentBranchId={currentBranchId}
+          onSelectBranch={setCurrentBranchId}
+          activeTab={adminTab}
+          onSelectTab={setAdminTab}
+          onSwitchPersona={() => setIsLoginOpen(true)}
+          onLogout={handleLogout}
+          onUpgradePlan={() => setIsUpgradePlanOpen(true)}
+        >
+          {adminTab === 'overview' && (
+            <OverviewDashboard
+              tenant={activeTenant}
+              students={students}
+              classes={classes}
+              invoices={invoices}
+              exams={beltExams}
+              auditLogs={auditLogs}
+              onNavigateTab={setAdminTab}
+              onOpenNewStudent={handleOpenCreateStudent}
+            />
+          )}
+
+          {adminTab === 'students' && (
+            <StudentsView
+              students={students}
+              persons={persons}
+              guardians={guardians}
+              assessments={physicalAssessments}
+              healthRecords={healthRecords}
+              belts={beltRanks}
+              classes={classes}
+              enrollments={enrollments}
+              isLoading={isLoadingStudents}
+              tenantId={currentTenantId}
+              onOpenCreateStudent={handleOpenCreateStudent}
+              onEditStudent={handleOpenEditStudent}
+              onUpdatePerson={handleUpdatePerson}
+              onResetData={handleResetAcademyData}
+            />
+          )}
+
+          {adminTab === 'guardians' && (
+            <GuardiansView
+              tenantId={currentTenantId}
+              guardians={guardians}
+              persons={persons}
+              students={students}
+              isLoading={isLoadingStudents}
+              error={null}
+              onRefreshData={handleRefreshStudents}
+              onOpenStudentDetail={(student) => {
+                handleOpenEditStudent(student);
+              }}
+              onUpdatePerson={handleUpdatePerson}
+              onResetData={handleResetAcademyData}
+            />
+          )}
+
+          {adminTab === 'modalities' && (
+            <ModalitiesView
+              tenantId={currentTenantId}
+              currentUser={currentUser}
+              martialArts={martialArts}
+              beltRanks={beltRanks}
+              onAddBeltRank={handleAddBeltRank}
+              onUpdateBeltRank={handleUpdateBeltRank}
+              onDeleteBeltRank={handleDeleteBeltRank}
+              onReorderBeltRanks={handleReorderBeltRanks}
+              onAddMartialArt={handleAddMartialArt}
+              onUpdateMartialArt={handleUpdateMartialArt}
+              onToggleMartialArtStatus={handleToggleMartialArtStatus}
+              onDeleteMartialArt={handleDeleteMartialArt}
+              onRefresh={handleRefreshModalities}
+            />
+          )}
+
+          {adminTab === 'classes' && (
+            <ClassesView
+              classes={classes}
+              enrollments={enrollments}
+              martialArts={martialArts}
+              beltRanks={beltRanks}
+              students={students}
+              persons={persons}
+              branches={branches}
+              instructors={users.filter(u => u.role === 'instructor' || u.role === 'owner')}
+              tenantId={currentTenantId}
+              tenantName={activeTenant.tradeName}
+              tatamis={tatamis}
+              onOpenAttendance={(cls) => {
+                setSelectedClassForAttendance(cls);
+                setIsAttendanceModalOpen(true);
+              }}
+              onAddClass={handleAddClass}
+              onRefreshData={handleRefreshClasses}
+              onNavigateToOccupancy={() => setAdminTab('tatami_occupancy')}
+            />
+          )}
+
+          {adminTab === 'attendance' && (
+            <AttendanceView
+              classes={classes}
+              enrollments={enrollments}
+              students={students}
+              persons={persons}
+              martialArts={martialArts}
+              beltRanks={beltRanks}
+              branches={branches}
+              currentUser={currentUser}
+              tenantId={currentTenantId}
+              tenantName={activeTenant.tradeName}
+              initialClassGroup={selectedClassForAttendance}
+              onRefreshData={handleRefreshAttendance}
+              onNavigateToClasses={() => setAdminTab('classes')}
+            />
+          )}
+
+          {adminTab === 'tatami_occupancy' && (
+            <TatamiOccupancyView
+              classes={classes}
+              martialArts={martialArts}
+              instructors={users.filter(u => u.role === 'instructor' || u.role === 'owner')}
+              branches={tenantBranches}
+              currentBranchId={currentBranchId}
+              tenantName={activeTenant.tradeName}
+              tenantId={currentTenantId}
+              tatamis={tatamis}
+              onRefreshTatamis={handleRefreshTatamis}
+              onOpenAttendance={(cls) => {
+                setSelectedClassForAttendance(cls);
+                setIsAttendanceModalOpen(true);
+              }}
+              onNavigateToClasses={() => setAdminTab('classes')}
+            />
+          )}
+
+          {adminTab === 'financial' && (
+            <FinancialView
+              tenant={activeTenant}
+              invoices={invoices}
+              students={students}
+              persons={persons}
+              classes={classes}
+              branches={tenantBranches}
+              currentBranchId={currentBranchId}
+              currentUser={currentUser}
+              onRefreshData={handleRefreshFinancial}
+              onSettleInvoice={handleSettleInvoice}
+            />
+          )}
+
+          {adminTab === 'library' && (
+            <DigitalLibraryView
+              libraryItems={libraryItems}
+              beltRanks={beltRanks}
+              onAddLibraryItem={handleAddLibraryItem}
+            />
+          )}
+
+          {adminTab === 'exams' && (
+            <BeltExamsView
+              tenant={activeTenant}
+              exams={beltExams}
+              registrations={examRegistrations}
+              students={students}
+              persons={persons}
+              beltRanks={beltRanks}
+              onAddExam={handleAddExam}
+              onApproveCandidate={handleApproveCandidate}
+            />
+          )}
+
+          {adminTab === 'competitions' && (
+            <CompetitionsView
+              competitions={competitions}
+              athletes={competitionAthletes}
+              students={students}
+              persons={persons}
+              onAddCompetition={handleAddCompetition}
+              onAddAthlete={() => {}}
+            />
+          )}
+
+          {adminTab === 'branches' && (
+            <BranchesView
+              branches={tenantBranches}
+              tenant={activeTenant}
+              plans={plans}
+              onAddBranch={handleAddBranch}
+              onUpgradePlan={() => setIsUpgradePlanOpen(true)}
+            />
+          )}
+
+          {adminTab === 'reports' && (
+            <ReportsView
+              tenant={activeTenant}
+              students={students}
+              persons={persons}
+              invoices={invoices}
+              attendances={attendances}
+              belts={beltRanks}
+              onUpdateTenantLogo={(newLogoUrl) => {
+                const updated = { ...activeTenant, logoUrl: newLogoUrl };
+                handleSaveTenant(updated);
+              }}
+            />
+          )}
+
+          {adminTab === 'settings' && (
+            <SettingsView
+              tenant={activeTenant}
+              plans={plans}
+              onSaveTenant={handleSaveTenant}
+              onUpgradePlan={() => setIsUpgradePlanOpen(true)}
+            />
+          )}
+        </DashboardLayout>
+      )}
+
+      {/* VIEW 3: STUDENT PORTAL */}
+      {currentView === 'student_portal' && (
+        <StudentLayout
+          currentUser={currentUser}
+          tenant={activeTenant}
+          onSwitchPersona={() => setIsLoginOpen(true)}
+          onLogout={handleLogout}
+        >
+          {(() => {
+            const currentStudent = students.find(s => s.id === currentUser.studentId) || students[0];
+            const currentPerson = persons.find(p => p.id === currentStudent?.personId) || persons[0];
+            return (
+              <StudentDashboard
+                student={currentStudent}
+                person={currentPerson}
+                classes={classes}
+                invoices={invoices}
+                attendances={attendances}
+                libraryItems={libraryItems}
+                onOpenLibraryItem={() => {}}
+              />
+            );
+          })()}
+        </StudentLayout>
+      )}
+
+      {/* VIEW 4: GUARDIAN PORTAL */}
+      {currentView === 'guardian_portal' && (
+        <StudentLayout
+          currentUser={currentUser}
+          tenant={activeTenant}
+          onSwitchPersona={() => setIsLoginOpen(true)}
+          onLogout={handleLogout}
+        >
+          {(() => {
+            const guardianPerson = persons.find(p => p.id === currentUser.guardianPersonId) || persons[2];
+            return (
+              <GuardianPortal
+                guardianPerson={guardianPerson}
+                relationships={guardians}
+                students={students}
+                persons={persons}
+                invoices={invoices}
+                classes={classes}
+                attendances={attendances}
+                healthRecords={healthRecords}
+              />
+            );
+          })()}
+        </StudentLayout>
+      )}
+
+      {/* VIEW 5: CENTRAL SAAS SUPERADMIN CONSOLE */}
+      {currentView === 'superadmin' && (
+        <div className="min-h-screen p-4 sm:p-6 lg:p-8 bg-slate-950">
+          <div className="max-w-6xl mx-auto flex items-center justify-between pb-6 border-b border-slate-800 mb-6">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-lg text-white">TatameHub Central</span>
+              <span className="text-xs bg-red-600 px-2 py-0.5 rounded text-white font-semibold">SuperAdmin</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsLoginOpen(true)}
+                className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-xs text-slate-300 hover:text-white"
+              >
+                Trocar Persona
+              </button>
+              <button
+                onClick={handleLogout}
+                className="px-3 py-1.5 rounded-lg bg-red-600 text-xs font-semibold text-white hover:bg-red-500"
+              >
+                Sair / Desconectar
+              </button>
+            </div>
+          </div>
+
+          <PlatformAdminView
+            tenants={tenants}
+            plans={plans}
+            currentUser={currentUser}
+            onUpdatePlans={handleUpdatePlans}
+            onUpdateTenantStatus={handleUpdateTenantStatus}
+            onSwitchTenant={(tId) => {
+              setCurrentTenantId(tId);
+              setCurrentView('admin');
+              setAdminTab('overview');
+            }}
+          />
+        </div>
+      )}
+
+      {/* GLOBAL MODALS */}
+      <RegisterModal
+        isOpen={isRegisterOpen}
+        onClose={() => setIsRegisterOpen(false)}
+        onSuccess={handleRegisterSuccess}
+        onRegisterAtomicSuccess={handleRegisterAtomicSuccess}
+        onOpenLogin={() => {
+          setIsRegisterOpen(false);
+          setIsLoginOpen(true);
+        }}
+      />
+
+      <LoginModal
+        isOpen={isLoginOpen}
+        onClose={() => setIsLoginOpen(false)}
+        users={users}
+        onSelectUser={handleSelectUser}
+        onAuthSuccess={handleAuthSuccess}
+      />
+
+      <StudentFormModal
+        isOpen={isNewStudentOpen}
+        onClose={() => {
+          setIsNewStudentOpen(false);
+          setEditingStudent(null);
+        }}
+        tenantId={currentTenantId}
+        branchId={currentBranchId}
+        belts={beltRanks}
+        martialArts={martialArts}
+        studentToEdit={editingStudent}
+        personToEdit={editingStudent ? persons.find((p) => p.id === editingStudent.personId) : null}
+        guardianRelToEdit={
+          editingStudent ? guardians.find((g) => g.studentId === editingStudent.id) : null
+        }
+        guardianPersonToEdit={
+          editingStudent
+            ? (() => {
+                const rel = guardians.find((g) => g.studentId === editingStudent.id);
+                return rel ? persons.find((p) => p.id === rel.guardianPersonId) : null;
+              })()
+            : null
+        }
+        allGuardians={guardians}
+        allPersons={persons}
+        onSave={handleSaveStudent}
+        onUpdate={handleUpdateStudent}
+      />
+
+      {isAttendanceModalOpen && selectedClassForAttendance && (
+        <AttendanceModal
+          isOpen={isAttendanceModalOpen}
+          onClose={() => {
+            setIsAttendanceModalOpen(false);
+          }}
+          classGroup={selectedClassForAttendance}
+          students={students}
+          persons={persons}
+          enrollments={enrollments}
+          currentUser={currentUser}
+          tenantId={currentTenantId}
+          onSaved={handleRefreshAttendance}
+          onNavigateToFullControl={() => {
+            setIsAttendanceModalOpen(false);
+            setAdminTab('attendance');
+          }}
+        />
+      )}
+
+      <PlanUpgradeModal
+        isOpen={isUpgradePlanOpen}
+        onClose={() => setIsUpgradePlanOpen(false)}
+        plans={plans}
+        currentPlanId={activeTenant.planId}
+        onConfirmUpgrade={handleConfirmUpgrade}
+      />
+    </div>
+  );
+}
